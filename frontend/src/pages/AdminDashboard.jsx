@@ -13,6 +13,9 @@ export function AdminDashboard() {
   const [subAdminForm, setSubAdminForm] = useState({ full_name: "", email: "", password: "Password@12345" });
   const [sellerForm, setSellerForm] = useState({ full_name: "", email: "", password: "Password@12345", company_id: "" });
   const [inventoryForm, setInventoryForm] = useState({ company_id: "", start_msisdn: "", count: 1000 });
+  const [telecomSearch, setTelecomSearch] = useState("");
+  const [telecomResult, setTelecomResult] = useState(null);
+  const [falloutQueue, setFalloutQueue] = useState([]);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -27,6 +30,7 @@ export function AdminDashboard() {
     setCompanies(companyData);
     setSeries(seriesData);
     setFullDashboard(dashboardData);
+    apiRequest("/telecom/fallout").then(setFalloutQueue).catch(() => setFalloutQueue([]));
   }
 
   useEffect(() => {
@@ -83,6 +87,35 @@ export function AdminDashboard() {
     await loadData();
   }
 
+  async function searchTelecom(event) {
+    event.preventDefault();
+    setError("");
+    setTelecomResult(null);
+    try {
+      setTelecomResult(await apiRequest("/telecom/search", { method: "POST", body: JSON.stringify({ query: telecomSearch }) }));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function resumeTelecomActivation(activationId) {
+    setError("");
+    setNotice("");
+    try {
+      const result = await apiRequest(`/telecom/activations/${activationId}/resume`, {
+        method: "POST",
+        body: JSON.stringify({ reason: "Admin fixed fallout layer and reprocessed activation" })
+      });
+      setTelecomResult(result);
+      setNotice(`Activation ${result.correlation_id} resumed`);
+      await loadData();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  const telecomMetrics = fullDashboard?.metrics?.telecom ?? {};
+
   return (
     <section className="grid gap-6">
       <h1 className="text-2xl font-semibold">Admin Dashboard</h1>
@@ -97,6 +130,49 @@ export function AdminDashboard() {
         <MetricTile label="Top Company" value={fullDashboard?.metrics?.top_company?.company_name ?? "None"} />
         <MetricTile label="Top Seller" value={fullDashboard?.metrics?.top_seller?.seller_name ?? "None"} />
         <MetricTile label="Segments" value={Object.keys(fullDashboard?.metrics?.customer_segment_counts ?? {}).length} />
+      </div>
+      <div className="overflow-hidden rounded border border-slate-200 bg-white">
+        <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+          <h2 className="font-semibold">Telecom Operations Console</h2>
+          <p className="text-sm text-slate-500">Fallout queue, retry queue, manual reviews, correlation search and network layer traceability.</p>
+        </div>
+        <div className="grid gap-3 p-4 md:grid-cols-6">
+          <MetricTile label="Success Rate" value={`${telecomMetrics.activation_success_rate ?? 0}%`} />
+          <MetricTile label="Failure Rate" value={`${telecomMetrics.activation_failure_rate ?? 0}%`} />
+          <MetricTile label="Avg Time" value={`${telecomMetrics.average_activation_time ?? 0}s`} />
+          <MetricTile label="Most Failed" value={telecomMetrics.most_failed_layer ?? "None"} />
+          <MetricTile label="Fallout Queue" value={falloutQueue.length} />
+          <MetricTile label="Resume Count" value={telecomMetrics.resume_count ?? 0} />
+        </div>
+        <form className="flex flex-col gap-3 border-t border-slate-100 p-4 md:flex-row" onSubmit={searchTelecom}>
+          <input className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Search MSISDN, ICCID, IMSI, customer ID, order ID or correlation ID" value={telecomSearch} onChange={(event) => setTelecomSearch(event.target.value)} />
+          <button className="rounded bg-signal px-4 py-2 font-medium text-white" type="submit">Search</button>
+        </form>
+        <div className="grid gap-4 border-t border-slate-100 p-4 lg:grid-cols-2">
+          <div className="rounded border border-slate-200">
+            <div className="border-b border-slate-200 px-3 py-2 text-sm font-medium">Fallout / Manual Review Queue</div>
+            {falloutQueue.slice(0, 8).map((item) => (
+              <div key={item.activation_id} className="grid gap-2 border-b border-slate-100 px-3 py-2 text-sm md:grid-cols-[1fr_1fr_1fr_auto]">
+                <span>{item.correlation_id}</span><span>{item.msisdn}</span><span>{item.fallout_layer}: {item.fallout_reason}</span>
+                <button className="rounded bg-signal px-3 py-1 text-white" onClick={() => resumeTelecomActivation(item.activation_id)} type="button">Resume</button>
+              </div>
+            ))}
+            {falloutQueue.length === 0 ? <div className="px-3 py-4 text-sm text-slate-500">No fallout cases.</div> : null}
+          </div>
+          {telecomResult ? (
+            <div className="rounded border border-slate-200">
+              <div className="border-b border-slate-200 px-3 py-2 text-sm font-medium">Search Result: {telecomResult.correlation_id}</div>
+              <div className="grid gap-2 p-3 text-sm">
+                <div>Order: <strong>{telecomResult.order_id}</strong></div>
+                <div>Status: <strong>{telecomResult.activation_status}</strong></div>
+                <div>Current layer: <strong>{telecomResult.current_layer ?? "Complete"}</strong></div>
+                <div>Fallout: <strong>{telecomResult.fallout_layer ?? "None"}</strong></div>
+                {telecomResult.last_failed_layer ? <button className="w-fit rounded bg-signal px-3 py-1 text-white" onClick={() => resumeTelecomActivation(telecomResult.activation_id)} type="button">Fix and Resume</button> : null}
+              </div>
+              {(telecomResult.logs ?? []).slice(0, 5).map((log) => <details className="border-t border-slate-100 px-3 py-2 text-sm" key={log.log_id}><summary>{log.layer_name} {log.status} {log.latency_ms}ms</summary><pre className="mt-2 overflow-auto rounded bg-slate-950 p-2 text-xs text-white">{log.response_payload}</pre></details>)}
+            </div>
+          ) : null}
+        </div>
       </div>
       {notice ? <p className="rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{notice}</p> : null}
       {error ? <p className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-alert">{error}</p> : null}

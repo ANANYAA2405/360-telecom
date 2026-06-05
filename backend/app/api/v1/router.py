@@ -1,12 +1,13 @@
 from fastapi import APIRouter
 
-from app.api.v1 import activation, admin, auth, companies, company, customer, dashboard, kyc, lifecycle, management, otp, seller, sims, usage
+from app.api.v1 import activation, admin, auth, companies, company, customer, dashboard, kyc, lifecycle, management, otp, seller, sims, telecom, usage
 
 api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(companies.router, prefix="/companies", tags=["companies"])
 api_router.include_router(sims.router, prefix="/sims", tags=["sims"])
 api_router.include_router(usage.router, prefix="/usage", tags=["usage"])
+api_router.include_router(telecom.router, prefix="/telecom", tags=["telecom-operations"])
 api_router.include_router(otp.router, prefix="/otp", tags=["otp"])
 api_router.include_router(kyc.router, prefix="/kyc", tags=["kyc"])
 api_router.include_router(activation.router, prefix="/activation", tags=["activation"])

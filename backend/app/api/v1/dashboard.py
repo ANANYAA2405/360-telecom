@@ -15,10 +15,12 @@ from app.models.enums import ActivationStatus, ComplaintStatus, KycStatus, Repla
 from app.models.kyc import KycSubmission
 from app.models.replacement import ReplacementRequest
 from app.models.sim import NumberSeries, SimRecord
+from app.models.telecom_activation import ActivationMaster
 from app.models.usage import Recharge, SimUsage
 from app.models.user import User
 from app.services.audit_service import record_audit
 from app.services.profile_service import customer_profile, lifecycle_label, seller_profile, top_company_rankings
+from app.services.telecom_activation_service import activation_details, telecom_metrics
 
 router = APIRouter()
 
@@ -161,6 +163,14 @@ def customer_dashboard(
             .order_by(ActivationAttempt.created_at.desc())
         )
     )
+    telecom_rows = list(
+        db.scalars(
+            select(ActivationMaster)
+            .where(ActivationMaster.customer_id == current_user.id)
+            .order_by(ActivationMaster.created_at.desc())
+            .limit(5)
+        )
+    )
     complaints = list(db.scalars(select(Complaint).where(Complaint.customer_id == current_user.id).order_by(Complaint.created_at.desc())))
     replacements = list(
         db.scalars(select(ReplacementRequest).where(ReplacementRequest.customer_id == current_user.id).order_by(ReplacementRequest.created_at.desc()))
@@ -174,6 +184,7 @@ def customer_dashboard(
         "kyc_status": kyc[0].status if kyc else None,
         "sim_status": selected_sim.status if selected_sim else None,
         "activation_timeline": [activation_card(attempt) for attempt in attempts],
+        "telecom_tracking": [activation_details(db, item) for item in telecom_rows],
         "complaints": [complaint_card(item) for item in complaints],
         "replacements": [replacement_card(item) for item in replacements],
         "profile": profile,
@@ -256,6 +267,7 @@ def seller_dashboard(
             )
         )
     )
+    telecom_rows = list(db.scalars(select(ActivationMaster).where(ActivationMaster.company_id == current_user.company_id).order_by(ActivationMaster.updated_at.desc()).limit(10)))
     complaints = list(
         db.scalars(
             select(Complaint)
@@ -285,6 +297,8 @@ def seller_dashboard(
         "replacement_requests": [replacement_card(item) for item in replacements],
         "profile": seller_profile(db, current_user),
         "customer_usage_watchlist": customer_profiles,
+        "activation_monitoring": [activation_details(db, item) for item in telecom_rows],
+        "telecom_metrics": telecom_metrics(db, current_user.company_id),
     }
 
 
@@ -321,6 +335,7 @@ def company_dashboard(
             .where(SimRecord.company_id == company_id, ActivationNodeRun.status == WorkflowNodeStatus.FAILED)
         )
     )
+    telecom_rows = list(db.scalars(select(ActivationMaster).where(ActivationMaster.company_id == company_id).order_by(ActivationMaster.updated_at.desc()).limit(20)))
     seller_rows = db.execute(
         select(User.id, User.full_name, SimRecord.status, func.count())
         .join(SimRecord, SimRecord.seller_id == User.id)
@@ -377,6 +392,8 @@ def company_dashboard(
         "seller_profiles": seller_profiles if permissions["can_view_seller_profiles"] else [],
         "customer_segment_counts": segment_counts if permissions["can_view_customer_profiles"] else {},
         "customer_tier_counts": tier_counts if permissions["can_view_customer_profiles"] else {},
+        "activation_monitoring_center": [activation_details(db, item) for item in telecom_rows] if permissions["can_view_operations"] or permissions["can_view_analytics"] or permissions["can_handle_support"] else [],
+        "telecom_metrics": telecom_metrics(db, company_id) if permissions["can_view_operations"] or permissions["can_view_analytics"] or permissions["can_handle_support"] else {},
     }
 
 
@@ -404,6 +421,7 @@ def admin_dashboard(
             .limit(100)
         )
     )
+    telecom_rows = list(db.scalars(select(ActivationMaster).order_by(ActivationMaster.updated_at.desc()).limit(50)))
     audit_logs = list(db.scalars(select(AuditLog).order_by(AuditLog.created_at.desc()).limit(100)))
     customer_profiles = [{**user_card(item), "profile": customer_profile(db, item)} for item in customers]
     sorted_customers = sorted(
@@ -422,6 +440,7 @@ def admin_dashboard(
         "sorted_customers": sorted_customers,
         "all_sim_inventory": [sim_card(item) for item in inventory],
         "all_activation_logs": [activation_card(item) for item in activation_logs],
+        "telecom_operations": [activation_details(db, item) for item in telecom_rows],
         "audit_logs": [
             {
                 "id": item.id,
@@ -442,5 +461,6 @@ def admin_dashboard(
             "seller_profiles": seller_profiles,
             "profile_tier_counts": dict(Counter(item["profile"]["tier"] for item in customer_profiles)),
             "customer_segment_counts": dict(Counter(item["profile"]["segment"] for item in customer_profiles)),
+            "telecom": telecom_metrics(db),
         },
     }

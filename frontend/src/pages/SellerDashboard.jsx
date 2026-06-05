@@ -135,6 +135,27 @@ export function SellerDashboard() {
           <div><span className="text-slate-500">Prediction</span><div className="font-semibold">{dashboard.profile.prediction}</div></div>
         </div>
       ) : null}
+      {dashboard?.activation_monitoring?.length ? (
+        <div className="overflow-hidden rounded border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+            <h2 className="font-semibold">Activation Monitoring</h2>
+            <p className="text-sm text-slate-500">Current telecom layer, order status and timeline for your company activations.</p>
+          </div>
+          <div className="grid gap-3 p-4 md:grid-cols-2">
+            {dashboard.activation_monitoring.slice(0, 6).map((item) => (
+              <div key={item.activation_id} className="rounded border border-slate-200 p-3 text-sm">
+                <div className="font-semibold">{item.msisdn} - {item.activation_status}</div>
+                <div className="mt-1 text-slate-500">{item.correlation_id} / {item.order_id}</div>
+                <div className="mt-2">Current layer: <strong>{item.current_layer ?? "Complete"}</strong></div>
+                <div>Fallout: <strong>{item.fallout_layer ?? "None"}</strong></div>
+                <div className="mt-2 grid gap-1">
+                  {(item.timeline ?? []).slice(-3).map((event) => <div key={event.event_id} className="text-xs text-slate-500">{event.layer}: {event.event_description}</div>)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {notice ? <p className="rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{notice}</p> : null}
       {error ? <p className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-alert">{error}</p> : null}
       {preview ? (

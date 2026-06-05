@@ -38,6 +38,8 @@ export function CompanyDashboard() {
   const [planForm, setPlanForm] = useState({ name: "", description: "", monthly_price: "299.00", data_gb: 28, voice_minutes: 1000, sms_count: 100, validity_days: 28 });
   const [targetForm, setTargetForm] = useState({ seller_id: "", month: new Date().toISOString().slice(0, 7), activation_target: 10, recharge_target: 20, kyc_target: 10 });
   const [inventoryForm, setInventoryForm] = useState({ start_msisdn: "", count: 1000 });
+  const [telecomSearch, setTelecomSearch] = useState("");
+  const [telecomResult, setTelecomResult] = useState(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -189,6 +191,37 @@ export function CompanyDashboard() {
     }
   }
 
+  async function searchTelecom(event) {
+    event.preventDefault();
+    setError("");
+    setTelecomResult(null);
+    try {
+      const result = await apiRequest("/telecom/search", {
+        method: "POST",
+        body: JSON.stringify({ query: telecomSearch })
+      });
+      setTelecomResult(result);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function resumeTelecomActivation(activationId) {
+    setError("");
+    setNotice("");
+    try {
+      const result = await apiRequest(`/telecom/activations/${activationId}/resume`, {
+        method: "POST",
+        body: JSON.stringify({ reason: "Company operations correction completed" })
+      });
+      setTelecomResult(result);
+      setNotice(`Activation resumed from ${result.last_successful_layer ?? result.fallout_layer}`);
+      await loadData();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   const permissions = fullDashboard?.permissions ?? {};
   const companyRole = fullDashboard?.company_role ?? "COMPANY_ADMIN";
   const sellerProfiles = fullDashboard?.seller_profiles ?? [];
@@ -202,6 +235,7 @@ export function CompanyDashboard() {
   const bestSellerProfile = fullDashboard?.best_seller;
   const dominantTier = Object.entries(customerTierCounts).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] ?? "SILVER";
   const companyRisk = failedActivationCount > 3 ? "HIGH" : Object.keys(nodeFailures).length ? "MEDIUM" : "LOW";
+  const telecomMetrics = fullDashboard?.telecom_metrics ?? {};
   const showPlans = permissions.can_manage_plans || permissions.can_view_analytics;
   const showInventory = permissions.can_manage_inventory || permissions.can_view_analytics;
   const showSellerOps = permissions.can_manage_sellers || permissions.can_view_seller_profiles;
@@ -227,6 +261,57 @@ export function CompanyDashboard() {
         <MetricTile label="Retail Customers" value={fullDashboard?.customer_segment_counts?.RETAIL ?? 0} />
         <MetricTile label="Enterprise Customers" value={fullDashboard?.customer_segment_counts?.ENTERPRISE ?? 0} />
       </div>
+      {(permissions.can_view_operations || permissions.can_view_analytics || permissions.can_handle_support) ? (
+        <div className="overflow-hidden rounded border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+            <h2 className="font-semibold">Activation Monitoring Center</h2>
+            <p className="text-sm text-slate-500">Search telecom resources and inspect CRM, TIBCO, OM, RNUM, JCA and core-network logs.</p>
+          </div>
+          <div className="grid gap-3 p-4 md:grid-cols-6">
+            <MetricTile label="Success Rate" value={`${telecomMetrics.activation_success_rate ?? 0}%`} />
+            <MetricTile label="Failure Rate" value={`${telecomMetrics.activation_failure_rate ?? 0}%`} />
+            <MetricTile label="Avg Time" value={`${telecomMetrics.average_activation_time ?? 0}s`} />
+            <MetricTile label="Most Failed" value={telecomMetrics.most_failed_layer ?? "None"} />
+            <MetricTile label="Fallouts" value={telecomMetrics.fallout_count ?? 0} />
+            <MetricTile label="Resumes" value={telecomMetrics.resume_count ?? 0} />
+          </div>
+          <form className="flex flex-col gap-3 border-t border-slate-100 p-4 md:flex-row" onSubmit={searchTelecom}>
+            <input className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Search MSISDN, ICCID, IMSI, customer ID, order ID or correlation ID" value={telecomSearch} onChange={(event) => setTelecomSearch(event.target.value)} />
+            <button className="rounded bg-signal px-4 py-2 font-medium text-white" type="submit">Search</button>
+          </form>
+          {telecomResult ? (
+            <div className="border-t border-slate-100 p-4 text-sm">
+              <div className="grid gap-3 md:grid-cols-4">
+                <div><span className="text-slate-500">Correlation</span><div className="font-semibold">{telecomResult.correlation_id}</div></div>
+                <div><span className="text-slate-500">Order</span><div className="font-semibold">{telecomResult.order_id}</div></div>
+                <div><span className="text-slate-500">Status</span><div className="font-semibold">{telecomResult.activation_status}</div></div>
+                <div><span className="text-slate-500">Resume Point</span><div className="font-semibold">{telecomResult.last_failed_layer ?? "None"}</div></div>
+              </div>
+              {telecomResult.last_failed_layer ? <button className="mt-3 rounded bg-signal px-3 py-1 text-white" onClick={() => resumeTelecomActivation(telecomResult.activation_id)} type="button">Resume From {telecomResult.last_failed_layer}</button> : null}
+              <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                <div className="rounded border border-slate-200">
+                  <div className="border-b border-slate-200 px-3 py-2 font-medium">Network Transparency View</div>
+                  {(telecomResult.network_layers ?? []).map((layer) => (
+                    <div key={layer.layer_name} className="grid grid-cols-4 gap-2 border-b border-slate-100 px-3 py-2">
+                      <span>{layer.layer_name}</span><span>{layer.status}</span><span>{layer.latency ?? 0}ms</span><span>{layer.end_time ? new Date(layer.end_time).toLocaleTimeString() : ""}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded border border-slate-200">
+                  <div className="border-b border-slate-200 px-3 py-2 font-medium">Latest Layer Logs</div>
+                  {(telecomResult.logs ?? []).slice(0, 8).map((log) => (
+                    <details key={log.log_id} className="border-b border-slate-100 px-3 py-2">
+                      <summary>{log.layer_name} - {log.status} - {log.latency_ms}ms</summary>
+                      <pre className="mt-2 overflow-auto rounded bg-slate-950 p-2 text-xs text-slate-50">{log.request_payload}</pre>
+                      <pre className="mt-2 overflow-auto rounded bg-slate-950 p-2 text-xs text-slate-50">{log.response_payload}</pre>
+                    </details>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <div className="rounded border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
         Logged in as <strong>{companyRole}</strong>. Your enabled access: {Object.entries(permissions).filter(([, enabled]) => enabled).map(([key]) => key.replace("can_", "").replaceAll("_", " ")).join(", ") || "view only"}.
       </div>

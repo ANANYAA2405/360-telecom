@@ -287,6 +287,7 @@ export function CustomerDashboard() {
   const latestActivationAttempt = (dashboard?.activation_timeline ?? []).find(
     (attempt) => attempt.sim_record_id === selectedSim?.id
   ) ?? null;
+  const latestTelecom = dashboard?.telecom_tracking?.[0];
 
   return (
     <section className="grid gap-6">
@@ -385,6 +386,28 @@ export function CustomerDashboard() {
       {selectedSim && !canSubmitKyc && !activationProcessing ? (
         <div className="rounded border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
           KYC submission is available only for a reserved number. Current SIM status: {selectedStatus}.
+        </div>
+      ) : null}
+      {latestTelecom ? (
+        <div className="overflow-hidden rounded border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+            <h2 className="font-semibold">Activation Tracking</h2>
+            <p className="text-sm text-slate-500">Telecom layer visibility from CRM to service activation.</p>
+          </div>
+          <div className="grid gap-3 p-4 text-sm md:grid-cols-4">
+            <div><span className="text-slate-500">Correlation ID</span><div className="font-semibold">{latestTelecom.correlation_id}</div></div>
+            <div><span className="text-slate-500">Order ID</span><div className="font-semibold">{latestTelecom.order_id}</div></div>
+            <div><span className="text-slate-500">Current Layer</span><div className="font-semibold">{latestTelecom.current_layer ?? "Complete"}</div></div>
+            <div><span className="text-slate-500">Status</span><div className="font-semibold">{latestTelecom.activation_status}</div></div>
+          </div>
+          <div className="grid gap-2 p-4 pt-0 text-sm md:grid-cols-3">
+            {(latestTelecom.timeline ?? []).map((event) => (
+              <div key={event.event_id} className="rounded border border-slate-200 p-3">
+                <div className="font-medium">{event.layer ?? "SYSTEM"}: {event.status}</div>
+                <div className="text-slate-500">{new Date(event.timestamp).toLocaleTimeString()} - {event.event_description}</div>
+              </div>
+            ))}
+          </div>
         </div>
       ) : null}
       <ActivationFlow attempt={latestActivationAttempt} />

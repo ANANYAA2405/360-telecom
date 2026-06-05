@@ -87,7 +87,12 @@ def run_activation_workflow(db: Session, sim: SimRecord, attempt: ActivationAtte
     db.flush()
     attempt = db.scalar(
         select(ActivationAttempt)
-        .options(selectinload(ActivationAttempt.node_runs), selectinload(ActivationAttempt.sim_record).selectinload(SimRecord.plan))
+        .options(
+            selectinload(ActivationAttempt.node_runs),
+            selectinload(ActivationAttempt.sim_record).selectinload(SimRecord.plan),
+            selectinload(ActivationAttempt.sim_record).selectinload(SimRecord.company),
+            selectinload(ActivationAttempt.sim_record).selectinload(SimRecord.reserved_by),
+        )
         .where(ActivationAttempt.id == attempt.id)
     )
     sim = attempt.sim_record
@@ -128,6 +133,17 @@ def run_activation_workflow(db: Session, sim: SimRecord, attempt: ActivationAtte
     attempt.failure_reason = None
     attempt.completed_at = datetime.now(UTC)
     sim.status = SimStatus.ACTIVE
+    from app.services.telecom_activation_service import run_telecom_activation
+
+    telecom_master = run_telecom_activation(db, sim, attempt)
+    if telecom_master.activation_status == "FAILED":
+        attempt.status = ActivationStatus.MANUAL_REVIEW_REQUIRED
+        attempt.failed_node = None
+        attempt.failure_reason = telecom_master.fallout_reason
+        attempt.current_node = None
+        sim.status = SimStatus.MANUAL_REVIEW_REQUIRED
+        db.flush()
+        return attempt
     if sim.plan_id:
         usage = db.scalar(select(SimUsage).where(SimUsage.sim_record_id == sim.id))
         if usage is None:
